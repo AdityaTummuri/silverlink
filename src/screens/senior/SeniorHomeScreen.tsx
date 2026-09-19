@@ -4,13 +4,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../context/AppContext';
 import { SeniorButton } from '../../components/common/SeniorButton';
 import { SpeechService } from '../../services/speechService';
+import { silverPulseService, SilverPulseState } from '../../features/silverpulse/silverPulseService';
+import { emitMedicineTaken } from '../../features/medication/medicationEvents';
 import { theme } from '../../theme/theme';
 
 export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { currentUser, medications, checkIns, triggerSos, markMedicationTaken, contacts } = useApp();
+  const { currentUser, medications, checkIns, markMedicationTaken, contacts } = useApp();
 
   const [currentTime, setCurrentTime] = useState<string>('');
   const [currentDate, setCurrentDate] = useState<string>('');
+  const [pulseState, setPulseState] = useState<SilverPulseState>(silverPulseService.getCurrentState());
 
   useEffect(() => {
     const updateTime = () => {
@@ -23,12 +26,36 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
     return () => clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = silverPulseService.subscribe((state) => {
+      setPulseState(state);
+    });
+    return () => unsubscribe();
+  }, []);
+
   const todayCheckIn = checkIns[0];
-  const pendingMeds = medications.filter(m => m.status === 'pending');
-  const primaryContact = contacts.find(c => c.isPrimary) || contacts[0];
+  const pendingMeds = medications.filter((m) => m.status === 'pending' || m.status === 'due' || m.status === 'upcoming');
+  const primaryContact = contacts.find((c) => c.isPrimary) || contacts[0];
 
   const handleSpeechGreeting = () => {
-    SpeechService.speakText(`Good day ${currentUser.name}. Today is ${currentDate}. You have ${pendingMeds.length} pending medication reminders.`);
+    SpeechService.speakText(
+      `Good day ${currentUser.name}. Today is ${currentDate}. You have ${pendingMeds.length} pending medication reminders.`
+    );
+  };
+
+  const handleTakeMedicine = (id: string, name: string, dosage: string, scheduledTime: string) => {
+    markMedicationTaken(id);
+    emitMedicineTaken(currentUser.uid, id, name, dosage, scheduledTime);
+  };
+
+  const handleWellbeingImOkay = () => {
+    silverPulseService.resolveSeniorIsOkay();
+    SpeechService.speakText("Glad to hear you are okay Eleanor! We have cleared the routine check.");
+  };
+
+  const handleWellbeingNeedHelp = () => {
+    silverPulseService.resolveSeniorNeedsHelp();
+    navigation.navigate('Emergency');
   };
 
   return (
@@ -37,7 +64,7 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
       <View style={styles.greetingCard}>
         <View style={styles.timeRow}>
           <Text style={styles.timeText}>{currentTime}</Text>
-          <TouchableOpacity onPress={handleSpeechGreeting} style={styles.audioIconBtn}>
+          <TouchableOpacity onPress={handleSpeechGreeting} style={styles.audioIconBtn} accessibilityLabel="Listen to greeting">
             <Ionicons name="volume-high" size={28} color="#0F766E" />
           </TouchableOpacity>
         </View>
@@ -45,17 +72,76 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
         <Text style={styles.greetingText}>Welcome back, {currentUser.name} 👋</Text>
       </View>
 
-      {/* Emergency SOS Banner Button */}
+      {/* Non-Alarming SilverPulse Status Banner */}
+      <View
+        style={[
+          styles.pulseStatusCard,
+          pulseState.routineStatus === 'NORMAL' ? styles.pulseCardNormal : styles.pulseCardDeviation,
+        ]}
+      >
+        <View style={styles.pulseHeaderRow}>
+          <Ionicons
+            name={pulseState.routineStatus === 'NORMAL' ? 'checkmark-circle' : 'time'}
+            size={26}
+            color={pulseState.routineStatus === 'NORMAL' ? '#065F46' : '#92400E'}
+          />
+          <Text
+            style={[
+              styles.pulseStatusTitle,
+              { color: pulseState.routineStatus === 'NORMAL' ? '#065F46' : '#92400E' },
+            ]}
+          >
+            {pulseState.routineStatus === 'NORMAL' ? '🟢 Routine looks normal' : '🟡 Routine check needed'}
+          </Text>
+        </View>
+        <Text
+          style={[
+            styles.pulseStatusSub,
+            { color: pulseState.routineStatus === 'NORMAL' ? '#047857' : '#B45309' },
+          ]}
+        >
+          {pulseState.routineStatus === 'NORMAL'
+            ? 'SilverPulse intelligence is monitoring your daily patterns in background.'
+            : pulseState.reason || 'Activity delayed outside usual window.'}
+        </Text>
+      </View>
+
+      {/* Active SilverPulse Wellbeing Prompt Card (When Deviation Active) */}
+      {pulseState.wellbeingCheckActive && (
+        <View style={styles.wellbeingCard}>
+          <View style={styles.wellbeingHeaderRow}>
+            <Ionicons name="pulse" size={32} color="#D97706" />
+            <Text style={styles.wellbeingTitle}>SilverPulse Wellbeing Check</Text>
+          </View>
+          <Text style={styles.wellbeingPrompt}>
+            We haven't heard from you as usual. Are you okay?
+          </Text>
+
+          <View style={styles.wellbeingActionRow}>
+            <TouchableOpacity style={styles.imOkayBtn} onPress={handleWellbeingImOkay}>
+              <Ionicons name="checkmark-circle" size={26} color="#FFFFFF" />
+              <Text style={styles.imOkayText}>I'M OKAY</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.needHelpBtn} onPress={handleWellbeingNeedHelp}>
+              <Ionicons name="alert-circle" size={26} color="#FFFFFF" />
+              <Text style={styles.needHelpText}>I NEED HELP</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Emergency SOS Entry Button */}
       <SeniorButton
         title="EMERGENCY / SOS"
-        subtitle="Press for immediate help"
+        subtitle="Press for immediate help confirmation"
         icon="alert-circle"
         variant="sos"
-        onPress={() => triggerSos()}
+        onPress={() => navigation.navigate('Emergency')}
         style={styles.sosButton}
       />
 
-      {/* Voice Assistant Launcher */}
+      {/* Voice Assistant Launcher Tile */}
       <TouchableOpacity
         style={styles.voiceAssistantCard}
         onPress={() => navigation.navigate('VoiceAssistant')}
@@ -66,45 +152,10 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
         </View>
         <View style={styles.voiceTextContainer}>
           <Text style={styles.voiceTitle}>Voice Assistant</Text>
-          <Text style={styles.voiceSub}>Tap to speak: "Show my medicines" or "Call Sarah"</Text>
+          <Text style={styles.voiceSub}>Tap to speak: "Show my medicines" or "I need help"</Text>
         </View>
         <Ionicons name="chevron-forward" size={28} color="#0F766E" />
       </TouchableOpacity>
-
-      {/* Daily Check-In Widget Card */}
-      <View style={styles.widgetCard}>
-        <View style={styles.widgetHeader}>
-          <Ionicons name="happy-outline" size={30} color="#0F766E" />
-          <Text style={styles.widgetTitle}>Daily Check-In</Text>
-        </View>
-
-        {todayCheckIn ? (
-          <View style={styles.checkInStatusRow}>
-            <Text style={styles.moodEmoji}>
-              {todayCheckIn.mood === 'good' ? '😊' : todayCheckIn.mood === 'okay' ? '😐' : '😟'}
-            </Text>
-            <View style={styles.checkInTextCol}>
-              <Text style={styles.checkInStatusText}>
-                {todayCheckIn.mood === 'good' ? 'Feeling Good Today' : todayCheckIn.mood === 'okay' ? 'Feeling Okay Today' : 'Not Feeling Well'}
-              </Text>
-              <Text style={styles.checkInTimeText}>Logged at {new Date(todayCheckIn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-            </View>
-            <TouchableOpacity style={styles.recheckBtn} onPress={() => navigation.navigate('DailyCheckIn')}>
-              <Text style={styles.recheckBtnText}>Update</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={styles.pendingCheckInGroup}>
-            <Text style={styles.pendingCheckInPrompt}>How are you feeling today, {currentUser.name.split(' ')[0]}?</Text>
-            <SeniorButton
-              title="Record Check-In"
-              icon="heart"
-              variant="primary"
-              onPress={() => navigation.navigate('DailyCheckIn')}
-            />
-          </View>
-        )}
-      </View>
 
       {/* Today's Medications Overview Card */}
       <View style={styles.widgetCard}>
@@ -127,7 +178,14 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
             </View>
             <TouchableOpacity
               style={styles.takeNowBtn}
-              onPress={() => markMedicationTaken(pendingMeds[0].id)}
+              onPress={() =>
+                handleTakeMedicine(
+                  pendingMeds[0].id,
+                  pendingMeds[0].name,
+                  pendingMeds[0].dosage,
+                  pendingMeds[0].scheduledTime
+                )
+              }
             >
               <Ionicons name="checkmark-circle" size={22} color="#FFFFFF" />
               <Text style={styles.takeNowText}>TAKEN</Text>
@@ -141,7 +199,42 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
         )}
       </View>
 
-      {/* Family Contact Shortcut Card */}
+      {/* Daily Check-In Status Card */}
+      <View style={styles.widgetCard}>
+        <View style={styles.widgetHeader}>
+          <Ionicons name="happy-outline" size={30} color="#0F766E" />
+          <Text style={styles.widgetTitle}>Daily Check-In</Text>
+        </View>
+
+        {todayCheckIn ? (
+          <View style={styles.checkInStatusRow}>
+            <Text style={styles.moodEmoji}>
+              {todayCheckIn.mood === 'good' ? '😊' : todayCheckIn.mood === 'okay' ? '😐' : '😟'}
+            </Text>
+            <View style={styles.checkInTextCol}>
+              <Text style={styles.checkInStatusText}>
+                {todayCheckIn.mood === 'good' ? 'Feeling Good ✓' : todayCheckIn.mood === 'okay' ? 'Feeling Okay ✓' : 'Not Feeling Well ⚠'}
+              </Text>
+              <Text style={styles.checkInTimeText}>Logged at {new Date(todayCheckIn.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+            </View>
+            <TouchableOpacity style={styles.recheckBtn} onPress={() => navigation.navigate('DailyCheckIn')}>
+              <Text style={styles.recheckBtnText}>Update</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.pendingCheckInGroup}>
+            <Text style={styles.pendingCheckInPrompt}>Today's check-in pending 🟡</Text>
+            <SeniorButton
+              title="Record Check-In"
+              icon="heart"
+              variant="primary"
+              onPress={() => navigation.navigate('DailyCheckIn')}
+            />
+          </View>
+        )}
+      </View>
+
+      {/* Caregiver Contact Shortcut Card */}
       {primaryContact && (
         <View style={styles.widgetCard}>
           <View style={styles.widgetHeader}>
@@ -166,6 +259,15 @@ export const SeniorHomeScreen: React.FC<{ navigation: any }> = ({ navigation }) 
           </View>
         </View>
       )}
+
+      {/* SilverPulse Dev/Demo Bench Launcher */}
+      <TouchableOpacity
+        style={styles.silverPulseDevCard}
+        onPress={() => navigation.navigate('SilverPulseDemo')}
+      >
+        <Ionicons name="construct" size={24} color="#D97706" style={{ marginRight: 8 }} />
+        <Text style={styles.silverPulseDevText}>🛠️ Open SilverPulse Test Bench (Demo)</Text>
+      </TouchableOpacity>
     </ScrollView>
   );
 };
@@ -219,8 +321,96 @@ const styles = StyleSheet.create({
     color: '#0F766E',
     marginTop: 12,
   },
+  pulseStatusCard: {
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1.5,
+  },
+  pulseCardNormal: {
+    backgroundColor: '#D1FAE5',
+    borderColor: '#10B981',
+  },
+  pulseCardDeviation: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#F59E0B',
+  },
+  pulseHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  pulseStatusTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  pulseStatusSub: {
+    fontSize: 14,
+    marginTop: 4,
+    lineHeight: 20,
+  },
+  wellbeingCard: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+  },
+  wellbeingHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  wellbeingTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#92400E',
+    marginLeft: 8,
+  },
+  wellbeingPrompt: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#78350F',
+    marginVertical: 4,
+  },
+  wellbeingActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
+  },
+  imOkayBtn: {
+    flex: 1,
+    backgroundColor: '#10B981',
+    paddingVertical: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  imOkayText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  needHelpBtn: {
+    flex: 1,
+    backgroundColor: '#DC2626',
+    paddingVertical: 14,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  needHelpText: {
+    color: '#FFFFFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
   sosButton: {
-    marginVertical: 10,
+    marginVertical: 8,
   },
   voiceAssistantCard: {
     backgroundColor: '#CCFBF1',
@@ -287,50 +477,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: 16,
   },
-  checkInStatusRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 14,
-    padding: 12,
-  },
-  moodEmoji: {
-    fontSize: 40,
-    marginRight: 12,
-  },
-  checkInTextCol: {
-    flex: 1,
-  },
-  checkInStatusText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#0F172A',
-  },
-  checkInTimeText: {
-    fontSize: 14,
-    color: '#64748B',
-    marginTop: 2,
-  },
-  recheckBtn: {
-    backgroundColor: '#E2E8F0',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  recheckBtnText: {
-    color: '#334155',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-  pendingCheckInGroup: {
-    marginTop: 4,
-  },
-  pendingCheckInPrompt: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#334155',
-    marginBottom: 10,
-  },
   nextMedRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -387,6 +533,50 @@ const styles = StyleSheet.create({
     color: '#065F46',
     flex: 1,
   },
+  checkInStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+  },
+  moodEmoji: {
+    fontSize: 40,
+    marginRight: 12,
+  },
+  checkInTextCol: {
+    flex: 1,
+  },
+  checkInStatusText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0F172A',
+  },
+  checkInTimeText: {
+    fontSize: 14,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  recheckBtn: {
+    backgroundColor: '#E2E8F0',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  recheckBtnText: {
+    color: '#334155',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  pendingCheckInGroup: {
+    marginTop: 4,
+  },
+  pendingCheckInPrompt: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 10,
+  },
   contactRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -417,5 +607,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  silverPulseDevCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF3C7',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginVertical: 14,
+    borderWidth: 1.5,
+    borderColor: '#F59E0B',
+  },
+  silverPulseDevText: {
+    color: '#92400E',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
 });

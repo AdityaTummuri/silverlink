@@ -5,9 +5,8 @@ import { SeniorHomeScreen } from '../screens/senior/SeniorHomeScreen';
 import { MedicinesScreen } from '../screens/senior/MedicinesScreen';
 import { DailyCheckInScreen } from '../screens/senior/DailyCheckInScreen';
 import { EmergencyScreen } from '../screens/senior/EmergencyScreen';
-import { FamilyContactsScreen } from '../screens/senior/FamilyContactsScreen';
+import { SeniorPrivacyScreen } from '../screens/senior/SeniorPrivacyScreen';
 import { SeniorSettingsScreen } from '../screens/senior/SeniorSettingsScreen';
-import { theme } from '../theme/theme';
 
 const Tab = createBottomTabNavigator();
 
@@ -27,7 +26,7 @@ export const SeniorTabNavigator: React.FC = () => {
         tabBarActiveTintColor: '#0F766E',
         tabBarInactiveTintColor: '#64748B',
         tabBarLabelStyle: {
-          fontSize: 14,
+          fontSize: 13,
           fontWeight: 'bold',
         },
       }}
@@ -37,7 +36,7 @@ export const SeniorTabNavigator: React.FC = () => {
         component={SeniorHomeScreen}
         options={{
           tabBarLabel: 'Home',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home" size={28} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="home" size={28} color={color} />,
         }}
       />
 
@@ -46,7 +45,7 @@ export const SeniorTabNavigator: React.FC = () => {
         component={MedicinesScreen}
         options={{
           tabBarLabel: 'Medicines',
-          tabBarIcon: ({ color, size }) => <Ionicons name="medical" size={28} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="medical" size={28} color={color} />,
         }}
       />
 
@@ -55,7 +54,7 @@ export const SeniorTabNavigator: React.FC = () => {
         component={DailyCheckInScreen}
         options={{
           tabBarLabel: 'Check-In',
-          tabBarIcon: ({ color, size }) => <Ionicons name="happy" size={28} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="happy" size={28} color={color} />,
         }}
       />
 
@@ -64,17 +63,17 @@ export const SeniorTabNavigator: React.FC = () => {
         component={EmergencyScreen}
         options={{
           tabBarLabel: 'SOS',
-          tabBarIcon: ({ color, size }) => <Ionicons name="alert-circle" size={30} color="#DC2626" />,
-          tabBarLabelStyle: { fontSize: 14, fontWeight: 'bold', color: '#DC2626' },
+          tabBarIcon: () => <Ionicons name="alert-circle" size={30} color="#DC2626" />,
+          tabBarLabelStyle: { fontSize: 13, fontWeight: 'bold', color: '#DC2626' },
         }}
       />
 
       <Tab.Screen
-        name="SeniorContacts"
-        component={FamilyContactsScreen}
+        name="SeniorPrivacy"
+        component={SeniorPrivacyScreen}
         options={{
-          tabBarLabel: 'Family',
-          tabBarIcon: ({ color, size }) => <Ionicons name="people" size={28} color={color} />,
+          tabBarLabel: 'Privacy',
+          tabBarIcon: ({ color }) => <Ionicons name="shield-checkmark" size={28} color={color} />,
         }}
       />
 
@@ -83,7 +82,7 @@ export const SeniorTabNavigator: React.FC = () => {
         component={SeniorSettingsScreen}
         options={{
           tabBarLabel: 'Settings',
-          tabBarIcon: ({ color, size }) => <Ionicons name="settings" size={28} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="settings" size={28} color={color} />,
         }}
       />
     </Tab.Navigator>

@@ -4,13 +4,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../context/AppContext';
 import { SeniorButton } from '../../components/common/SeniorButton';
 import { SpeechService } from '../../services/speechService';
+import {
+  emitMedicineTaken,
+  emitMedicineSkipped,
+} from '../../features/medication/medicationEvents';
 import { theme } from '../../theme/theme';
 
 export const MedicineDetailsScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { medicineId } = route.params || {};
-  const { medications, markMedicationTaken, markMedicationPending } = useApp();
+  const { currentUser, medications, markMedicationTaken, markMedicationSkipped, markMedicationPending } = useApp();
 
-  const med = medications.find(m => m.id === medicineId) || medications[0];
+  const med = medications.find((m) => m.id === medicineId) || medications[0];
 
   if (!med) {
     return (
@@ -27,14 +31,21 @@ export const MedicineDetailsScreen: React.FC<{ route: any; navigation: any }> = 
     );
   };
 
-  const handleToggle = () => {
-    if (med.status === 'taken') {
-      markMedicationPending(med.id);
-      SpeechService.speakText(`Marked ${med.name} as pending.`);
-    } else {
-      markMedicationTaken(med.id);
-      SpeechService.speakText(`Marked ${med.name} as taken!`);
-    }
+  const handleTake = () => {
+    markMedicationTaken(med.id);
+    emitMedicineTaken(currentUser.uid, med.id, med.name, med.dosage, med.scheduledTime);
+    SpeechService.speakText(`Marked ${med.name} as taken!`);
+  };
+
+  const handleSkip = () => {
+    markMedicationSkipped(med.id, 'Senior chose to skip from detail view');
+    emitMedicineSkipped(currentUser.uid, med.id, med.name, med.dosage, med.scheduledTime, 'Skipped by senior');
+    SpeechService.speakText(`Marked ${med.name} as skipped.`);
+  };
+
+  const handleUndo = () => {
+    markMedicationPending(med.id);
+    SpeechService.speakText(`Marked ${med.name} as pending.`);
   };
 
   return (
@@ -46,7 +57,7 @@ export const MedicineDetailsScreen: React.FC<{ route: any; navigation: any }> = 
 
       <View style={styles.detailCard}>
         <View style={styles.pillBanner}>
-          <View style={[styles.largePillCircle, { backgroundColor: med.pillColor || '#3B82F6' }]}>
+          <View style={[styles.largePillCircle, { backgroundColor: med.pillColor || '#0F766E' }]}>
             <Ionicons name="medical" size={48} color="#FFFFFF" />
           </View>
           <Text style={styles.medTitle}>{med.name}</Text>
@@ -63,7 +74,9 @@ export const MedicineDetailsScreen: React.FC<{ route: any; navigation: any }> = 
             <Ionicons name="time" size={26} color="#0F766E" />
             <View style={styles.infoCol}>
               <Text style={styles.infoLabel}>Scheduled Time</Text>
-              <Text style={styles.infoValue}>{med.scheduledTime} ({med.timeOfDay})</Text>
+              <Text style={styles.infoValue}>
+                {med.scheduledTime} ({med.timeOfDay})
+              </Text>
             </View>
           </View>
 
@@ -87,23 +100,51 @@ export const MedicineDetailsScreen: React.FC<{ route: any; navigation: any }> = 
             <Ionicons name="pulse" size={26} color="#0F766E" />
             <View style={styles.infoCol}>
               <Text style={styles.infoLabel}>Current Status</Text>
-              <Text style={[
-                styles.infoStatusText,
-                { color: med.status === 'taken' ? '#10B981' : '#D97706' }
-              ]}>
+              <Text
+                style={[
+                  styles.infoStatusText,
+                  {
+                    color:
+                      med.status === 'taken'
+                        ? '#10B981'
+                        : med.status === 'due'
+                        ? '#0284C7'
+                        : med.status === 'missed'
+                        ? '#DC2626'
+                        : '#D97706',
+                  },
+                ]}
+              >
                 {med.status.toUpperCase()} {med.lastTakenTime ? `(${med.lastTakenTime})` : ''}
               </Text>
             </View>
           </View>
         </View>
 
-        <SeniorButton
-          title={med.status === 'taken' ? 'Mark as Pending' : 'MARK AS TAKEN'}
-          variant={med.status === 'taken' ? 'secondary' : 'success'}
-          icon={med.status === 'taken' ? 'close-circle' : 'checkmark-circle'}
-          onPress={handleToggle}
-          style={{ marginTop: 20 }}
-        />
+        <View style={styles.actionSection}>
+          {med.status !== 'taken' ? (
+            <SeniorButton
+              title="MARK AS TAKEN"
+              variant="success"
+              icon="checkmark-circle"
+              onPress={handleTake}
+            />
+          ) : (
+            <SeniorButton
+              title="MARK AS PENDING"
+              variant="secondary"
+              icon="refresh"
+              onPress={handleUndo}
+            />
+          )}
+
+          {med.status !== 'skipped' && med.status !== 'taken' && (
+            <TouchableOpacity style={styles.skipBtnDetail} onPress={handleSkip}>
+              <Ionicons name="pause-circle" size={24} color="#64748B" />
+              <Text style={styles.skipBtnDetailText}>Skip this dose</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     </ScrollView>
   );
@@ -163,7 +204,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   medTitle: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: 'bold',
     color: '#0F172A',
     textAlign: 'center',
@@ -228,5 +269,23 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     marginTop: 2,
+  },
+  actionSection: {
+    marginTop: 20,
+    gap: 12,
+  },
+  skipBtnDetail: {
+    height: 54,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  skipBtnDetailText: {
+    color: '#475569',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });

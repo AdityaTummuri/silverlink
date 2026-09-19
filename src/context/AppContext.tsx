@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { UserProfile, UserRole, Medication, DailyCheckIn, CaregiverAlert, FamilyContact, SeniorStatus } from '../types';
 import { DataService, INITIAL_USER_SENIOR, INITIAL_USER_CAREGIVER } from '../services/dataService';
+import { emitCheckInCompleted } from '../features/checkin/checkinEvents';
 
 interface AppContextType {
   currentUser: UserProfile;
@@ -19,8 +20,14 @@ interface AppContextType {
   triggerSos: (message?: string) => void;
   cancelSos: () => void;
   markMedicationTaken: (id: string) => Promise<void>;
+  markMedicationSkipped: (id: string, reason?: string) => Promise<void>;
+  markMedicationMissed: (id: string) => Promise<void>;
   markMedicationPending: (id: string) => Promise<void>;
+  markMedicationStatus: (id: string, status: any) => Promise<void>;
   addMedication: (med: Omit<Medication, 'id' | 'seniorUid' | 'status'>) => Promise<void>;
+  activeReminderMed: Medication | null;
+  triggerReminderModal: (med: Medication) => void;
+  closeReminderModal: () => void;
   submitCheckIn: (mood: 'good' | 'okay' | 'bad', note?: string, symptoms?: string[]) => Promise<void>;
   acknowledgeAlert: (id: string) => Promise<void>;
   refreshData: () => Promise<void>;
@@ -45,6 +52,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [audioEnabled, setAudioEnabled] = useState<boolean>(true);
   const [highContrast, setHighContrast] = useState<boolean>(false);
   const [isSosActive, setIsSosActive] = useState<boolean>(false);
+  const [activeReminderMed, setActiveReminderMed] = useState<Medication | null>(null);
 
   const loadData = async () => {
     const medsData = await DataService.getMedications();
@@ -78,9 +86,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMedications(updated);
   };
 
+  const markMedicationSkipped = async (id: string, reason?: string) => {
+    const updated = await DataService.updateMedicationStatus(id, 'skipped');
+    setMedications(updated);
+  };
+
+  const markMedicationMissed = async (id: string) => {
+    const updated = await DataService.updateMedicationStatus(id, 'missed');
+    setMedications(updated);
+  };
+
   const markMedicationPending = async (id: string) => {
     const updated = await DataService.updateMedicationStatus(id, 'pending');
     setMedications(updated);
+  };
+
+  const markMedicationStatus = async (id: string, status: any) => {
+    const updated = await DataService.updateMedicationStatus(id, status);
+    setMedications(updated);
+  };
+
+  const triggerReminderModal = (med: Medication) => {
+    setActiveReminderMed(med);
+  };
+
+  const closeReminderModal = () => {
+    setActiveReminderMed(null);
   };
 
   const addMedication = async (newMed: Omit<Medication, 'id' | 'seniorUid' | 'status'>) => {
@@ -91,6 +122,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const submitCheckIn = async (mood: 'good' | 'okay' | 'bad', note?: string, symptoms?: string[]) => {
     const updated = await DataService.addCheckIn({ mood, note, symptoms });
     setCheckIns(updated);
+
+    // Emit senior event CHECKIN_COMPLETED
+    emitCheckInCompleted(currentUser.uid, mood, note, symptoms);
 
     // If mood is bad, generate auto-alert for Caregiver
     if (mood === 'bad') {
@@ -143,8 +177,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         triggerSos,
         cancelSos,
         markMedicationTaken,
+        markMedicationSkipped,
+        markMedicationMissed,
         markMedicationPending,
+        markMedicationStatus,
         addMedication,
+        activeReminderMed,
+        triggerReminderModal,
+        closeReminderModal,
         submitCheckIn,
         acknowledgeAlert,
         refreshData: loadData,
