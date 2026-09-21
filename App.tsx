@@ -5,6 +5,7 @@ import { AppProvider } from './src/context/AppContext';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { WebContainer } from './src/components/common/WebContainer';
 import { SosModal } from './src/components/common/SosModal';
+import { MedicationReminderModal } from './src/components/senior/MedicationReminderModal';
 
 export default function App() {
   return (
@@ -14,6 +15,7 @@ export default function App() {
           <StatusBar style="auto" />
           <RootNavigator />
           <SosModal />
+          <MedicationReminderModal />
         </WebContainer>
       </AppProvider>
     </SafeAreaProvider>

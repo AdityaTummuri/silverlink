@@ -1,55 +1,95 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Animated,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useApp } from '../../context/AppContext';
-import { SpeechService, SpeechResult } from '../../services/speechService';
+import { SpeechService } from '../../services/speechService';
+import { VoiceCommandService, ProcessedVoiceCommand } from '../../features/voice/voiceCommands';
 import { theme } from '../../theme/theme';
 
+export type VoiceState = 'IDLE' | 'LISTENING' | 'PROCESSING' | 'SUCCESS' | 'ERROR';
+
 export const VoiceAssistantScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { triggerSos, currentUser } = useApp();
-  const [isListening, setIsListening] = useState<boolean>(false);
-  const [transcript, setTranscript] = useState<string>('Press the microphone button or pick a command below...');
+  const { triggerSos, triggerReminderModal, medications, currentUser } = useApp();
+
+  const [voiceState, setVoiceState] = useState<VoiceState>('IDLE');
+  const [transcribedText, setTranscribedText] = useState<string>('');
   const [assistantReply, setAssistantReply] = useState<string>('How can I help you today, Eleanor?');
-  const [executedCommand, setExecutedCommand] = useState<string | null>(null);
+  const [lastProcessed, setLastProcessed] = useState<ProcessedVoiceCommand | null>(null);
+
+  const [typedInput, setTypedInput] = useState<string>('');
+  const [isWebSpeechAvailable, setIsWebSpeechAvailable] = useState<boolean>(false);
 
   const pulseAnim = new Animated.Value(1);
 
   useEffect(() => {
-    if (isListening) {
+    setIsWebSpeechAvailable(SpeechService.isSpeechSupported());
+  }, []);
+
+  useEffect(() => {
+    if (voiceState === 'LISTENING') {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.25, duration: 600, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1.3, duration: 550, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 550, useNativeDriver: true }),
         ])
       ).start();
     } else {
       pulseAnim.setValue(1);
     }
-  }, [isListening]);
+  }, [voiceState]);
 
-  const executeResult = (result: SpeechResult) => {
-    setTranscript(`"${result.transcript}"`);
-    setAssistantReply(result.feedbackResponse);
-    setExecutedCommand(result.commandExecuted || null);
+  const processTextCommand = (rawText: string) => {
+    setVoiceState('PROCESSING');
+    setTranscribedText(`"${rawText}"`);
 
-    if (result.action === 'SHOW_MEDS') {
-      setTimeout(() => navigation.navigate('Medicines'), 1800);
-    } else if (result.action === 'CALL_DAUGHTER') {
-      setTimeout(() => {
-        alert("Simulated Phone Call: Dialing Sarah Vance ((555) 234-5678)...");
-      }, 1500);
-    } else if (result.action === 'TRIGGER_SOS') {
-      setTimeout(() => triggerSos("Voice Assistant triggered Emergency SOS"), 1200);
-    } else if (result.action === 'CHECK_IN') {
-      setTimeout(() => navigation.navigate('DailyCheckIn'), 1800);
-    }
+    setTimeout(() => {
+      const result = VoiceCommandService.process(rawText, currentUser.uid);
+      setLastProcessed(result);
+      setAssistantReply(result.assistantReply);
+
+      // Speech synthesis output
+      SpeechService.speakText(result.assistantReply);
+
+      if (result.intent === 'UNKNOWN') {
+        setVoiceState('ERROR');
+      } else {
+        setVoiceState('SUCCESS');
+      }
+
+      // Handle navigation actions safely
+      if (result.navigationTarget === 'Medicines') {
+        if (result.intent === 'MEDICINE_REMINDER') {
+          const med = medications[0];
+          if (med) triggerReminderModal(med);
+        }
+        setTimeout(() => navigation.navigate('Medicines'), 2000);
+      } else if (result.navigationTarget === 'Emergency') {
+        setTimeout(() => navigation.navigate('Emergency'), 1800);
+      } else if (result.navigationTarget === 'SeniorHome') {
+        setTimeout(() => navigation.navigate('SeniorHome'), 2000);
+      } else if (result.navigationTarget === 'DailyCheckIn') {
+        setTimeout(() => navigation.navigate('DailyCheckIn'), 2000);
+      } else if (result.contactToCall) {
+        setTimeout(() => {
+          alert(`Calling ${result.contactToCall?.name} (${result.contactToCall?.phone})...`);
+        }, 1500);
+      }
+    }, 600);
   };
 
   const handleStartListening = () => {
-    setIsListening(true);
-    setTranscript('Listening... Speak now into your microphone');
+    setVoiceState('LISTENING');
+    setTranscribedText('I\'m listening... Speak into your microphone');
 
-    // Check if web speech is supported
+    // Web Speech API check
     if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       try {
         const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
@@ -60,19 +100,18 @@ export const VoiceAssistantScreen: React.FC<{ navigation: any }> = ({ navigation
 
         recognition.onresult = (event: any) => {
           const spoken = event.results[0][0].transcript;
-          setIsListening(false);
-          const res = SpeechService.parseCommand(spoken);
-          executeResult(res);
+          processTextCommand(spoken);
         };
 
         recognition.onerror = () => {
-          setIsListening(false);
-          // Fallback simulation
-          const res = SpeechService.parseCommand("Show my medicines");
-          executeResult(res);
+          setVoiceState('ERROR');
+          setAssistantReply("Speech recognition encountered an issue. Try tapping a suggested command below or typing.");
+          SpeechService.speakText("I didn't catch that. Please try again.");
         };
 
-        recognition.onend = () => setIsListening(false);
+        recognition.onend = () => {
+          if (voiceState === 'LISTENING') setVoiceState('IDLE');
+        };
 
         recognition.start();
         return;
@@ -81,18 +120,33 @@ export const VoiceAssistantScreen: React.FC<{ navigation: any }> = ({ navigation
       }
     }
 
-    // Default simulation if web speech api is not supported by environment
+    // Fallback simulation when Web Speech API is absent
     setTimeout(() => {
-      setIsListening(false);
-      const res = SpeechService.parseCommand("Show my medicines");
-      executeResult(res);
-    }, 2500);
+      processTextCommand("Show my medicines");
+    }, 2200);
   };
 
-  const handleQuickCommand = (cmdText: string) => {
-    setIsListening(false);
-    const res = SpeechService.parseCommand(cmdText);
-    executeResult(res);
+  const handleTypedSubmit = () => {
+    if (!typedInput.trim()) return;
+    const input = typedInput.trim();
+    setTypedInput('');
+    processTextCommand(input);
+  };
+
+  const getStatusText = () => {
+    switch (voiceState) {
+      case 'LISTENING':
+        return '🎙️ I\'m listening...';
+      case 'PROCESSING':
+        return '⏳ Let me check...';
+      case 'SUCCESS':
+        return '✅ Action recognized!';
+      case 'ERROR':
+        return '⚠️ I didn\'t understand. Please try again.';
+      case 'IDLE':
+      default:
+        return 'Tap the microphone to speak';
+    }
   };
 
   return (
@@ -102,85 +156,138 @@ export const VoiceAssistantScreen: React.FC<{ navigation: any }> = ({ navigation
         <Text style={styles.backBtnText}>Back to Home</Text>
       </TouchableOpacity>
 
-      <View style={styles.micBanner}>
-        <Text style={styles.title}>Voice Assistant</Text>
-        <Text style={styles.subtitle}>Speak naturally or tap a suggested command below</Text>
+      {/* Main Microphone Card */}
+      <View style={styles.micCard}>
+        <Text style={styles.mainTitle}>How can I help you?</Text>
+        <Text style={styles.subTitle}>
+          {isWebSpeechAvailable
+            ? 'Web Speech API active — speak naturally'
+            : 'Speech Fallback Active — tap mic or pick a command'}
+        </Text>
 
+        {/* Large Central Microphone Button */}
         <View style={styles.micCircleContainer}>
-          <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseAnim }] }]} />
+          <Animated.View
+            style={[
+              styles.pulseRing,
+              { transform: [{ scale: pulseAnim }] },
+              voiceState === 'LISTENING' && styles.pulseRingActive,
+            ]}
+          />
           <TouchableOpacity
-            style={[styles.mainMicButton, isListening && styles.mainMicButtonListening]}
+            style={[
+              styles.mainMicBtn,
+              voiceState === 'LISTENING' && styles.mainMicBtnListening,
+              voiceState === 'SUCCESS' && styles.mainMicBtnSuccess,
+            ]}
             onPress={handleStartListening}
             activeOpacity={0.8}
+            accessibilityLabel="Tap to speak into microphone"
           >
-            <Ionicons name={isListening ? "mic" : "mic-outline"} size={56} color="#FFFFFF" />
+            <Ionicons
+              name={voiceState === 'LISTENING' ? 'mic' : voiceState === 'SUCCESS' ? 'checkmark' : 'mic-outline'}
+              size={56}
+              color="#FFFFFF"
+            />
           </TouchableOpacity>
         </View>
 
-        <Text style={styles.statusText}>
-          {isListening ? '🎙️ Listening... Speak now' : 'Tap Microphone to Speak'}
-        </Text>
+        <Text style={styles.statusLabel}>{getStatusText()}</Text>
       </View>
 
-      {/* Transcript & Response Area */}
-      <View style={styles.dialogCard}>
-        <View style={styles.userSpeechRow}>
-          <Ionicons name="person-circle-outline" size={32} color="#0F766E" />
-          <View style={styles.speechBubbleUser}>
-            <Text style={styles.userSpeechText}>{transcript}</Text>
+      {/* Speech Transcript & Assistant Reply Box */}
+      <View style={styles.responseBox}>
+        {transcribedText ? (
+          <View style={styles.userSpeechRow}>
+            <Ionicons name="person-circle" size={32} color="#0F766E" />
+            <View style={styles.userBubble}>
+              <Text style={styles.userText}>{transcribedText}</Text>
+            </View>
           </View>
-        </View>
+        ) : null}
 
         <View style={styles.assistantSpeechRow}>
-          <View style={styles.assistantAvatar}>
-            <Ionicons name="sparkles" size={20} color="#FFFFFF" />
+          <View style={styles.sparkleBadge}>
+            <Ionicons name="sparkles" size={22} color="#FFFFFF" />
           </View>
-          <View style={styles.speechBubbleAssistant}>
-            <Text style={styles.assistantSpeechText}>{assistantReply}</Text>
-            {executedCommand && (
-              <View style={styles.actionExecutedChip}>
+          <View style={styles.assistantBubble}>
+            <Text style={styles.assistantText}>{assistantReply}</Text>
+            {lastProcessed && lastProcessed.actionSummary ? (
+              <View style={styles.actionChip}>
                 <Ionicons name="checkmark-done" size={16} color="#065F46" />
-                <Text style={styles.actionExecutedText}>{executedCommand}</Text>
+                <Text style={styles.actionChipText}>{lastProcessed.actionSummary}</Text>
               </View>
-            )}
+            ) : null}
           </View>
         </View>
       </View>
 
-      {/* Suggested Quick Commands */}
-      <View style={styles.quickCommandsSection}>
-        <Text style={styles.quickHeading}>Quick Voice Commands:</Text>
+      {/* Suggested Example Commands */}
+      <View style={styles.examplesSection}>
+        <Text style={styles.examplesHeading}>Try saying...</Text>
+
         <TouchableOpacity
-          style={styles.commandChip}
-          onPress={() => handleQuickCommand("Remind me to take my medicine at 8 PM.")}
+          style={styles.exampleCard}
+          onPress={() => processTextCommand('Show my medicines')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="chatbubble-ellipses-outline" size={24} color="#0F766E" />
-          <Text style={styles.commandChipText}>"Remind me to take my medicine at 8 PM."</Text>
+          <Ionicons name="medical" size={26} color="#0F766E" />
+          <Text style={styles.exampleText}>"Show my medicines"</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.commandChip}
-          onPress={() => handleQuickCommand("Call my daughter.")}
+          style={styles.exampleCard}
+          onPress={() => processTextCommand('What do I need to do today?')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="call-outline" size={24} color="#0F766E" />
-          <Text style={styles.commandChipText}>"Call my daughter."</Text>
+          <Ionicons name="calendar" size={26} color="#0F766E" />
+          <Text style={styles.exampleText}>"What do I need to do today?"</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.commandChip}
-          onPress={() => handleQuickCommand("Show my medicines.")}
+          style={styles.exampleCard}
+          onPress={() => processTextCommand('Remind me to take my medicine at 8 PM')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="medical-outline" size={24} color="#0F766E" />
-          <Text style={styles.commandChipText}>"Show my medicines."</Text>
+          <Ionicons name="alarm" size={26} color="#0F766E" />
+          <Text style={styles.exampleText}>"Remind me to take my medicine at 8 PM"</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.commandChip, { borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]}
-          onPress={() => handleQuickCommand("I need help.")}
+          style={styles.exampleCard}
+          onPress={() => processTextCommand('Call my daughter')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="warning-outline" size={24} color="#DC2626" />
-          <Text style={[styles.commandChipText, { color: '#991B1B' }]}>"I need help."</Text>
+          <Ionicons name="call" size={26} color="#0F766E" />
+          <Text style={styles.exampleText}>"Call my daughter"</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.exampleCard, styles.exampleCardSos]}
+          onPress={() => processTextCommand('I need help')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="alert-circle" size={26} color="#DC2626" />
+          <Text style={[styles.exampleText, { color: '#991B1B' }]}>"I need help"</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Text Input Fallback Mode */}
+      <View style={styles.fallbackCard}>
+        <Text style={styles.fallbackHeading}>Text Fallback (Type a Command):</Text>
+        <View style={styles.inputRow}>
+          <TextInput
+            style={styles.textInput}
+            placeholder='Type e.g., "Show my medicines"'
+            placeholderTextColor="#94A3B8"
+            value={typedInput}
+            onChangeText={setTypedInput}
+            onSubmitEditing={handleTypedSubmit}
+          />
+          <TouchableOpacity style={styles.sendBtn} onPress={handleTypedSubmit}>
+            <Ionicons name="send" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
       </View>
     </ScrollView>
   );
@@ -206,7 +313,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0F766E',
   },
-  micBanner: {
+  micCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: theme.borderRadius.large,
     padding: 24,
@@ -218,13 +325,13 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-  title: {
-    fontSize: 30,
+  mainTitle: {
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#0F172A',
   },
-  subtitle: {
-    fontSize: 16,
+  subTitle: {
+    fontSize: 15,
     color: '#475569',
     marginTop: 4,
     textAlign: 'center',
@@ -236,12 +343,15 @@ const styles = StyleSheet.create({
   },
   pulseRing: {
     position: 'absolute',
-    width: 130,
-    height: 130,
-    borderRadius: 65,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
     backgroundColor: '#CCFBF1',
   },
-  mainMicButton: {
+  pulseRingActive: {
+    backgroundColor: '#FCA5A5',
+  },
+  mainMicBtn: {
     width: 100,
     height: 100,
     borderRadius: 50,
@@ -254,15 +364,18 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 6,
   },
-  mainMicButtonListening: {
+  mainMicBtnListening: {
     backgroundColor: '#DC2626',
   },
-  statusText: {
-    fontSize: 18,
-    fontWeight: '700',
+  mainMicBtnSuccess: {
+    backgroundColor: '#10B981',
+  },
+  statusLabel: {
+    fontSize: 20,
+    fontWeight: 'bold',
     color: '#0F766E',
   },
-  dialogCard: {
+  responseBox: {
     backgroundColor: '#FFFFFF',
     borderRadius: theme.borderRadius.medium,
     padding: 18,
@@ -279,13 +392,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
   },
-  speechBubbleUser: {
+  userBubble: {
     flex: 1,
     backgroundColor: '#F1F5F9',
     borderRadius: 16,
     padding: 14,
   },
-  userSpeechText: {
+  userText: {
     fontSize: 18,
     color: '#1E293B',
     fontStyle: 'italic',
@@ -296,68 +409,114 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     gap: 10,
   },
-  assistantAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  sparkleBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#0F766E',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 4,
   },
-  speechBubbleAssistant: {
+  assistantBubble: {
     flex: 1,
-    backgroundColor: '#E6FFFA',
+    backgroundColor: '#F0FDFA',
     borderRadius: 16,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#99F6E4',
+    borderColor: '#CCFBF1',
   },
-  assistantSpeechText: {
-    fontSize: 18,
+  assistantText: {
+    fontSize: 19,
     color: '#0F766E',
-    fontWeight: '600',
-    lineHeight: 24,
+    fontWeight: 'bold',
+    lineHeight: 26,
   },
-  actionExecutedChip: {
+  actionChip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#D1FAE5',
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 12,
-    marginTop: 8,
-    gap: 4,
+    marginTop: 10,
+    gap: 6,
   },
-  actionExecutedText: {
+  actionChipText: {
     color: '#065F46',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 15,
   },
-  quickCommandsSection: {
+  examplesSection: {
     gap: 10,
+    marginBottom: 16,
   },
-  quickHeading: {
-    fontSize: 20,
+  examplesHeading: {
+    fontSize: 22,
     fontWeight: 'bold',
-    color: '#1E293B',
+    color: '#0F172A',
     marginBottom: 4,
   },
-  commandChip: {
+  exampleCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: theme.borderRadius.small,
+    borderRadius: 14,
     padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     borderWidth: 2,
-    borderColor: '#CBD5E1',
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  commandChipText: {
-    fontSize: 18,
+  exampleCardSos: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  exampleText: {
+    fontSize: 19,
     fontWeight: '600',
     color: '#0F172A',
     flex: 1,
+  },
+  fallbackCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  fallbackHeading: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  textInput: {
+    flex: 1,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 17,
+    color: '#0F172A',
+  },
+  sendBtn: {
+    width: 50,
+    height: 50,
+    borderRadius: 12,
+    backgroundColor: '#0F766E',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

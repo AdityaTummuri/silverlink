@@ -11,7 +11,7 @@ export interface UserProfile {
   caregiverPhone?: string; // If role is senior, points to caregiver's phone
 }
 
-export type MedicineStatus = 'pending' | 'taken' | 'missed';
+export type MedicineStatus = 'upcoming' | 'due' | 'taken' | 'skipped' | 'missed' | 'pending';
 export type TimeOfDay = 'Morning' | 'Afternoon' | 'Evening' | 'Night';
 
 export interface Medication {

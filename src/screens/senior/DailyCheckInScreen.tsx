@@ -8,34 +8,51 @@ import { MoodRating } from '../../types';
 import { theme } from '../../theme/theme';
 
 export const DailyCheckInScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
-  const { submitCheckIn, currentUser } = useApp();
+  const { submitCheckIn, currentUser, checkIns } = useApp();
 
   const [selectedMood, setSelectedMood] = useState<MoodRating | null>(null);
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [noteText, setNoteText] = useState<string>('');
   const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [lastSubmittedMood, setLastSubmittedMood] = useState<MoodRating | null>(null);
 
   const symptomOptions = ['Feeling Great', 'Slept Well', 'Tired', 'Knee Pain', 'Dizzy', 'Headache', 'Stiffness'];
 
-  const handleSelectMood = (mood: MoodRating) => {
+  const handleSelectMood = async (mood: MoodRating) => {
     setSelectedMood(mood);
-    const text = mood === 'good' ? "I'm feeling good!" : mood === 'okay' ? "I'm feeling okay." : "I'm not feeling well.";
-    SpeechService.speakText(text);
+    const speechText =
+      mood === 'good'
+        ? "I'm feeling good today!"
+        : mood === 'okay'
+        ? "I'm feeling okay today."
+        : "I'm not feeling well today.";
+    SpeechService.speakText(speechText);
+
+    // Immediate submission as per prompt workflow
+    await submitCheckIn(mood, noteText, selectedSymptoms);
+    setLastSubmittedMood(mood);
+    setIsSubmitted(true);
+    SpeechService.speakText("Check-in completed! Thank you.");
   };
 
   const toggleSymptom = (symptom: string) => {
     if (selectedSymptoms.includes(symptom)) {
-      setSelectedSymptoms(selectedSymptoms.filter(s => s !== symptom));
+      setSelectedSymptoms(selectedSymptoms.filter((s) => s !== symptom));
     } else {
       setSelectedSymptoms([...selectedSymptoms, symptom]);
     }
   };
 
-  const handleSubmit = async () => {
-    if (!selectedMood) return;
-    await submitCheckIn(selectedMood, noteText, selectedSymptoms);
+  const handleDemoPreset = async (mood: MoodRating) => {
+    setSelectedMood(mood);
+    await submitCheckIn(mood, 'Demo log', mood === 'good' ? ['Feeling Great'] : mood === 'bad' ? ['Tired'] : []);
+    setLastSubmittedMood(mood);
     setIsSubmitted(true);
-    SpeechService.speakText("Thank you! Your check-in has been sent to your daughter Sarah.");
+  };
+
+  const handleResetCheckIn = () => {
+    setIsSubmitted(false);
+    setSelectedMood(null);
   };
 
   return (
@@ -45,16 +62,32 @@ export const DailyCheckInScreen: React.FC<{ navigation: any }> = ({ navigation }
         <Text style={styles.backBtnText}>Back to Home</Text>
       </TouchableOpacity>
 
+      {/* Demo Quick Simulator Bar */}
+      <View style={styles.demoBar}>
+        <Text style={styles.demoTitle}>Demo Quick Simulator:</Text>
+        <View style={styles.demoBtnRow}>
+          <TouchableOpacity style={[styles.demoChip, { backgroundColor: '#D1FAE5' }]} onPress={() => handleDemoPreset('good')}>
+            <Text style={[styles.demoChipText, { color: '#065F46' }]}>Set GOOD</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.demoChip, { backgroundColor: '#FEF3C7' }]} onPress={() => handleDemoPreset('okay')}>
+            <Text style={[styles.demoChipText, { color: '#92400E' }]}>Set OKAY</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.demoChip, { backgroundColor: '#FEE2E2' }]} onPress={() => handleDemoPreset('bad')}>
+            <Text style={[styles.demoChipText, { color: '#991B1B' }]}>Set NOT WELL</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {!isSubmitted ? (
         <>
           <View style={styles.promptHeader}>
             <Text style={styles.questionTitle}>How are you feeling today?</Text>
             <Text style={styles.questionSub}>
-              Hi {currentUser.name.split(' ')[0]}, select an option below to let your family know how you are doing.
+              Hi {currentUser.name.split(' ')[0]}, select an option below to log your daily wellbeing.
             </Text>
           </View>
 
-          {/* Massive Mood Options */}
+          {/* 3 Massive Touch-Friendly Choice Cards */}
           <View style={styles.moodOptionsContainer}>
             <TouchableOpacity
               style={[
@@ -66,7 +99,11 @@ export const DailyCheckInScreen: React.FC<{ navigation: any }> = ({ navigation }
               activeOpacity={0.8}
             >
               <Text style={styles.emojiText}>😊</Text>
-              <Text style={[styles.moodLabel, selectedMood === 'good' && styles.selectedLabelText]}>Good</Text>
+              <View style={styles.labelCol}>
+                <Text style={styles.moodLabel}>I'm feeling good</Text>
+                <Text style={styles.moodSubLabel}>Energetic, happy & active</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={28} color="#10B981" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -79,7 +116,11 @@ export const DailyCheckInScreen: React.FC<{ navigation: any }> = ({ navigation }
               activeOpacity={0.8}
             >
               <Text style={styles.emojiText}>😐</Text>
-              <Text style={[styles.moodLabel, selectedMood === 'okay' && styles.selectedLabelText]}>Okay</Text>
+              <View style={styles.labelCol}>
+                <Text style={styles.moodLabel}>I'm okay</Text>
+                <Text style={styles.moodSubLabel}>Usual routine, doing alright</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={28} color="#F59E0B" />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -92,64 +133,75 @@ export const DailyCheckInScreen: React.FC<{ navigation: any }> = ({ navigation }
               activeOpacity={0.8}
             >
               <Text style={styles.emojiText}>😟</Text>
-              <Text style={[styles.moodLabel, selectedMood === 'bad' && styles.selectedLabelText]}>Not Feeling Well</Text>
+              <View style={styles.labelCol}>
+                <Text style={styles.moodLabel}>I'm not feeling well</Text>
+                <Text style={styles.moodSubLabel}>Tired, in pain, or unwell</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={28} color="#DC2626" />
             </TouchableOpacity>
           </View>
 
-          {/* Optional Symptom Chips */}
-          {selectedMood && (
-            <View style={styles.detailsBox}>
-              <Text style={styles.sectionHeading}>Any specific feelings or symptoms?</Text>
-              <View style={styles.chipsRow}>
-                {symptomOptions.map(item => {
-                  const active = selectedSymptoms.includes(item);
-                  return (
-                    <TouchableOpacity
-                      key={item}
-                      style={[styles.chip, active && styles.chipActive]}
-                      onPress={() => toggleSymptom(item)}
-                    >
-                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-
-              <Text style={[styles.sectionHeading, { marginTop: 16 }]}>Add a short note (optional):</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g., Slept 8 hours, went for a short morning walk."
-                placeholderTextColor="#94A3B8"
-                value={noteText}
-                onChangeText={setNoteText}
-                multiline
-                numberOfLines={3}
-              />
-
-              <SeniorButton
-                title="SUBMIT CHECK-IN"
-                icon="checkmark-circle"
-                variant="primary"
-                onPress={handleSubmit}
-                style={{ marginTop: 20 }}
-              />
+          {/* Optional Symptoms & Note */}
+          <View style={styles.detailsBox}>
+            <Text style={styles.sectionHeading}>Any specific feelings or symptoms? (Optional)</Text>
+            <View style={styles.chipsRow}>
+              {symptomOptions.map((item) => {
+                const active = selectedSymptoms.includes(item);
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => toggleSymptom(item)}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{item}</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-          )}
+
+            <Text style={[styles.sectionHeading, { marginTop: 16 }]}>Add a short note (optional):</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="e.g., Slept well, went for a short morning walk."
+              placeholderTextColor="#94A3B8"
+              value={noteText}
+              onChangeText={setNoteText}
+              multiline
+              numberOfLines={3}
+            />
+          </View>
         </>
       ) : (
         <View style={styles.successCard}>
-          <Ionicons name="checkmark-circle-sharp" size={80} color="#10B981" />
-          <Text style={styles.successTitle}>Check-In Saved!</Text>
+          <Ionicons name="checkmark-circle-sharp" size={88} color="#10B981" />
+          <Text style={styles.successTitle}>Check-in completed ✓</Text>
+
+          <View style={styles.submittedBadgeRow}>
+            <Text style={styles.submittedBadgeText}>
+              Status:{' '}
+              {lastSubmittedMood === 'good'
+                ? 'Feeling Good ✓'
+                : lastSubmittedMood === 'okay'
+                ? 'Feeling Okay ✓'
+                : 'Not Feeling Well ⚠'}
+            </Text>
+          </View>
+
           <Text style={styles.successSub}>
-            Your daily check-in has been updated and shared with your family caregiver Sarah.
+            Your daily check-in timestamp ({new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}) has been recorded safely.
           </Text>
+
           <SeniorButton
-            title="Return to Home"
+            title="RETURN TO HOME"
             icon="home"
             variant="primary"
-            onPress={() => navigation.navigate('Home')}
+            onPress={() => navigation.navigate('SeniorHome')}
             style={{ marginTop: 24, width: '100%' }}
           />
+
+          <TouchableOpacity style={styles.reLogBtn} onPress={handleResetCheckIn}>
+            <Text style={styles.reLogBtnText}>Update Check-in Response</Text>
+          </TouchableOpacity>
         </View>
       )}
     </ScrollView>
@@ -169,12 +221,41 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   backBtnText: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#0F766E',
+  },
+  demoBar: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  demoTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#78350F',
+    marginBottom: 6,
+  },
+  demoBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  demoChip: {
+    flex: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  demoChipText: {
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   promptHeader: {
     marginBottom: 20,
@@ -191,31 +272,38 @@ const styles = StyleSheet.create({
     lineHeight: 26,
   },
   moodOptionsContainer: {
-    gap: 14,
+    gap: 16,
     marginBottom: 20,
   },
   moodCard: {
     backgroundColor: '#FFFFFF',
-    borderRadius: theme.borderRadius.medium,
+    borderRadius: theme.borderRadius.large,
     padding: 20,
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 3,
-    borderColor: '#E2E8F0',
+    borderColor: '#CBD5E1',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
+    minHeight: 90,
   },
   moodCardGood: {
     borderColor: '#A7F3D0',
+    borderLeftWidth: 8,
+    borderLeftColor: '#10B981',
   },
   moodCardOkay: {
     borderColor: '#FDE68A',
+    borderLeftWidth: 8,
+    borderLeftColor: '#F59E0B',
   },
   moodCardBad: {
     borderColor: '#FECACA',
+    borderLeftWidth: 8,
+    borderLeftColor: '#DC2626',
   },
   moodCardSelectedGood: {
     backgroundColor: '#D1FAE5',
@@ -231,29 +319,33 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 54,
-    marginRight: 20,
+    marginRight: 16,
+  },
+  labelCol: {
+    flex: 1,
   },
   moodLabel: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: 'bold',
-    color: '#1E293B',
-  },
-  selectedLabelText: {
     color: '#0F172A',
+  },
+  moodSubLabel: {
+    fontSize: 15,
+    color: '#475569',
+    marginTop: 2,
   },
   detailsBox: {
     backgroundColor: '#FFFFFF',
     borderRadius: theme.borderRadius.medium,
-    padding: 20,
-    marginTop: 10,
+    padding: 18,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
   },
   sectionHeading: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#334155',
     marginBottom: 12,
@@ -297,21 +389,42 @@ const styles = StyleSheet.create({
   successCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: theme.borderRadius.large,
-    padding: 30,
+    padding: 28,
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 10,
   },
   successTitle: {
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: 'bold',
     color: '#0F766E',
     marginTop: 16,
   },
+  submittedBadgeRow: {
+    backgroundColor: '#CCFBF1',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginVertical: 12,
+  },
+  submittedBadgeText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#0F766E',
+  },
   successSub: {
-    fontSize: 18,
+    fontSize: 17,
     color: '#475569',
     textAlign: 'center',
-    marginTop: 10,
-    lineHeight: 26,
+    marginTop: 4,
+    lineHeight: 24,
+  },
+  reLogBtn: {
+    marginTop: 16,
+    padding: 10,
+  },
+  reLogBtnText: {
+    color: '#0F766E',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });

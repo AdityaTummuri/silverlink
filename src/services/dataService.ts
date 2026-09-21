@@ -35,12 +35,12 @@ export const INITIAL_MEDICATIONS: Medication[] = [
   {
     id: 'med_1',
     seniorUid: 'senior_eleanor_1',
-    name: 'Lisinopril',
+    name: 'Morning Medicine (Lisinopril)',
     dosage: '10mg - 1 Tablet',
     scheduledTime: '08:00 AM',
     timeOfDay: 'Morning',
     frequency: 'Daily',
-    instructions: 'Take after breakfast with 1 full glass of water. Helps manage blood pressure.',
+    instructions: 'Take after breakfast with 1 full glass of water.',
     status: 'taken',
     lastTakenTime: '08:12 AM Today',
     pillColor: '#3B82F6',
@@ -49,40 +49,39 @@ export const INITIAL_MEDICATIONS: Medication[] = [
   {
     id: 'med_2',
     seniorUid: 'senior_eleanor_1',
-    name: 'Metformin',
+    name: 'Afternoon Medicine (Metformin)',
     dosage: '500mg - 1 Tablet',
     scheduledTime: '01:00 PM',
     timeOfDay: 'Afternoon',
     frequency: 'Daily',
     instructions: 'Take with lunch. Do not crush or chew tablet.',
-    status: 'taken',
-    lastTakenTime: '01:05 PM Today',
-    pillColor: '#10B981',
+    status: 'due',
+    pillColor: '#0284C7',
     icon: 'pill',
   },
   {
     id: 'med_3',
     seniorUid: 'senior_eleanor_1',
-    name: 'Calcium + Vitamin D3',
-    dosage: '600mg - 1 Softgel',
+    name: 'Evening Medicine (Calcium + D3)',
+    dosage: '600mg - 1 Tablet',
     scheduledTime: '08:00 PM',
     timeOfDay: 'Evening',
     frequency: 'Daily',
     instructions: 'Take with evening meal to support bone health.',
-    status: 'pending',
+    status: 'upcoming',
     pillColor: '#F59E0B',
     icon: 'capsule',
   },
   {
     id: 'med_4',
     seniorUid: 'senior_eleanor_1',
-    name: 'Eye Drops (Latanoprost)',
+    name: 'Nightly Eye Drops (Latanoprost)',
     dosage: '1 Drop per eye',
     scheduledTime: '09:30 PM',
     timeOfDay: 'Night',
     frequency: 'Nightly',
     instructions: 'Instill 1 drop in each eye before sleeping.',
-    status: 'pending',
+    status: 'upcoming',
     pillColor: '#8B5CF6',
     icon: 'droplet',
   },
@@ -191,14 +190,20 @@ export class DataService {
     await AsyncStorage.setItem(STORAGE_KEYS.MEDICATIONS, JSON.stringify(meds));
   }
 
-  static async updateMedicationStatus(id: string, status: 'taken' | 'pending' | 'missed'): Promise<Medication[]> {
+  static async updateMedicationStatus(
+    id: string,
+    status: 'taken' | 'skipped' | 'missed' | 'due' | 'upcoming' | 'pending'
+  ): Promise<Medication[]> {
     const meds = await this.getMedications();
-    const updated = meds.map(m => {
+    const updated = meds.map((m) => {
       if (m.id === id) {
         return {
           ...m,
           status,
-          lastTakenTime: status === 'taken' ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today' : m.lastTakenTime,
+          lastTakenTime:
+            status === 'taken'
+              ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' Today'
+              : m.lastTakenTime,
         };
       }
       return m;
