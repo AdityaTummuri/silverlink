@@ -13,7 +13,7 @@ export const AuthScreen: React.FC = () => {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.heroBanner}>
         <View style={styles.logoIconBg}>
-          <Ionicons name="heart-pulse-sharp" size={48} color="#FFFFFF" />
+          <Ionicons name="pulse" size={48} color="#FFFFFF" />
         </View>
         <Text style={styles.appTitle}>SilverLink</Text>
         <Text style={styles.appSub}>Keeping Seniors Connected and Safe</Text>
